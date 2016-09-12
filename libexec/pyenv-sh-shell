@@ -24,7 +24,7 @@ if [ "$1" = "--complete" ]; then
 fi
 
 versions=("$@")
-shell="$(basename "$SHELL")"
+shell="$(basename "${PYENV_SHELL:-$SHELL}")"
 
 if [ -z "$versions" ]; then
   if [ -z "$PYENV_VERSION" ]; then
@@ -51,14 +51,14 @@ fi
 # Make sure the specified version is installed.
 if pyenv-prefix "${versions[@]}" >/dev/null; then
   OLDIFS="$IFS"
-  IFS=: PYENV_VERSION="${versions[*]}"
+  IFS=: version="${versions[*]}"
   IFS="$OLDIFS"
   case "$shell" in
   fish )
-    echo "setenv PYENV_VERSION \"${PYENV_VERSION}\""
+    echo "setenv PYENV_VERSION \"${version}\""
     ;;
   * )
-    echo "export PYENV_VERSION=\"${PYENV_VERSION}\""
+    echo "export PYENV_VERSION=\"${version}\""
     ;;
   esac
 else

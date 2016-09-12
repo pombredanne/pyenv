@@ -9,6 +9,8 @@ set -e
 if [ "$1" = "--complete" ]; then
   echo exec
   echo rehash
+  echo version-name
+  echo version-origin
   echo which
   exit
 fi
@@ -19,29 +21,43 @@ if [ -z "$PYENV_COMMAND" ]; then
   exit 1
 fi
 
+if ! enable -f "${BASH_SOURCE%/*}"/pyenv-realpath.dylib realpath 2>/dev/null; then
+  if [ -n "$PYENV_NATIVE_EXT" ]; then
+    echo "pyenv: failed to load \`realpath' builtin" >&2
+    exit 1
+  fi
+READLINK=$(type -p greadlink readlink | head -1)
+if [ -z "$READLINK" ]; then
+  echo "pyenv: cannot find readlink - are you missing GNU coreutils?" >&2
+  exit 1
+fi
+
 resolve_link() {
-  $(type -p greadlink readlink | head -1) $1
+  $READLINK "$1"
 }
 
 realpath() {
-  local cwd="$(pwd)"
-  local base="$(basename $1)"
+  local cwd="$PWD"
   local path="$1"
+  local name
 
   while [ -n "$path" ]; do
-    cd "${path%/*}"
-    local name="${path##*/}"
+    name="${path##*/}"
+    [ "$name" = "$path" ] || cd "${path%/*}"
     path="$(resolve_link "$name" || true)"
   done
 
-  echo "$(pwd)/$base"
+  echo "${PWD}/$name"
   cd "$cwd"
 }
+fi
+
+IFS=: hook_paths=($PYENV_HOOK_PATH)
 
 shopt -s nullglob
-for path in ${PYENV_HOOK_PATH//:/$'\n'}; do
-  for script in $path/"$PYENV_COMMAND"/*.bash; do
-    echo $(realpath $script)
+for path in "${hook_paths[@]}"; do
+  for script in "$path/$PYENV_COMMAND"/*.bash; do
+    realpath "$script"
   done
 done
 shopt -u nullglob

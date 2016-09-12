@@ -1,28 +1,24 @@
-case "$(uname -s)" in
-"Darwin" )
-  install_package "pypy-1.9" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.9-osx64.tar.bz2#aad9c4b7b827583e37fe8ae0f7cfe0ff" pypy verify_py27
+case "$(pypy_architecture 2>/dev/null || true)" in
+"linux" )
+  install_package "pypy-1.9" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.9-linux.tar.bz2#1e3f9c3d06f8bbfa0dcb1301b40c298096249a7d7c2b4594b3fb1c3e7b9888f2" "pypy" verify_py27 ensurepip
   ;;
-"Linux" )
-  case "$(uname -m)" in
-  "i386" | "i486" | "i586" | "i686" | "i786" )
-    install_package "pypy-1.9" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.9-linux.tar.bz2#1a08c88642434fc2e0e4256d351f48db" pypy verify_py27
-    ;;
-  "x86_64" )
-    install_package "pypy-1.9" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.9-linux64.tar.bz2#201d2cce2557e40c784473b471ee1b6b" pypy verify_py27
-    ;;
-  esac
+"linux64" )
+  install_package "pypy-1.9" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.9-linux64.tar.bz2#4298252515e78c96f4ecd9f25be957411c060ece02d9213eef8d781cf528d18f" "pypy" verify_py27 ensurepip
   ;;
-"CYGWIN"* | "MINGW"* )
+"osx64" )
+  install_package "pypy-1.9" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.9-osx64.tar.bz2#4858f200e32c1070c77c1234ea0e9473eeda98bcd3832c4231f3e46e4e3b74b1" "pypy" verify_py27 ensurepip
+  ;;
+"win32" )
   # FIXME: never tested on Windows
-  install_zip "pypy-1.9" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.9-win32.zip#e7655066baed3c7bbbca7df617817dd5" pypy verify_py27
+  install_zip "pypy-1.9" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.9-win32.zip#54fafe8c69df390d2a460bab022145aaacd2c62c4a569873b22fdc7475f31581" "pypy" verify_py27 ensurepip
   ;;
 * )
-  { echo "Precompiled binary of pypy-1.9 is not available for $(uname -s)-$(uname -m)."
-    echo "To build pypy-1.9 from soruce, use 'pypy-1.9-dev'."
-  } 1>&4 2>&1
-  false
+  { echo
+    colorize 1 "ERROR"
+    echo ": The binary distribution of PyPy is not available for $(pypy_architecture 2>/dev/null || true)."
+    echo "try 'pypy-1.9-dev' to build from soruce."
+    echo
+  } >&2
+  exit 1
   ;;
 esac
-
-install_package "setuptools-1.1.7" "https://pypi.python.org/packages/source/s/setuptools/setuptools-1.1.7.tar.gz#1f33594d25d574a1640ffb84667c6759" python
-install_package "pip-1.4.1" "https://pypi.python.org/packages/source/p/pip/pip-1.4.1.tar.gz#6afbb46aeb48abac658d4df742bff714" python

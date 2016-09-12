@@ -5,6 +5,17 @@
 set -e
 [ -n "$PYENV_DEBUG" ] && set -x
 
+# Provide pyenv completions
+if [ "$1" = "--complete" ]; then
+  echo -
+  echo --no-rehash
+  echo bash
+  echo fish
+  echo ksh
+  echo zsh
+  exit
+fi
+
 print=""
 no_rehash=""
 for args in "$@"
@@ -22,39 +33,23 @@ done
 
 shell="$1"
 if [ -z "$shell" ]; then
-  shell="$(basename "$SHELL")"
+  shell="$(ps -p "$PPID" -o 'args=' 2>/dev/null || true)"
+  shell="${shell%% *}"
+  shell="${shell##-}"
+  shell="${shell:-$SHELL}"
+  shell="${shell##*/}"
 fi
 
-READLINK=$(type -p greadlink readlink | head -1)
-if [ -z "$READLINK" ]; then
-  echo "pyenv: cannot find readlink - are you missing GNU coreutils?" >&2
-  exit 1
-fi
-
-resolve_link() {
-  $READLINK "$1"
-}
-
-abs_dirname() {
-  local cwd="$(pwd)"
-  local path="$1"
-
-  while [ -n "$path" ]; do
-    cd "${path%/*}"
-    local name="${path##*/}"
-    path="$(resolve_link "$name" || true)"
-  done
-
-  pwd
-  cd "$cwd"
-}
-
-root="$(abs_dirname "$0")/.."
+root="${0%/*}/.."
 
 if [ -z "$print" ]; then
   case "$shell" in
   bash )
-    profile='~/.bash_profile'
+    if [ -f "${HOME}/.bashrc" ] && [ ! -f "${HOME}/.bash_profile" ]; then
+      profile='~/.bashrc'
+    else
+      profile='~/.bash_profile'
+    fi
     ;;
   zsh )
     profile='~/.zshrc'
@@ -70,12 +65,12 @@ if [ -z "$print" ]; then
     ;;
   esac
 
-  { echo "# Load pyenv automatically by adding"
+  { echo "# Load pyenv automatically by appending"
     echo "# the following to ${profile}:"
     echo
     case "$shell" in
     fish )
-      echo '. (pyenv init -|psub)'
+      echo 'status --is-interactive; and source (pyenv init -|psub)'
       ;;
     * )
       echo 'eval "$(pyenv init -)"'
@@ -89,22 +84,27 @@ fi
 
 mkdir -p "${PYENV_ROOT}/"{shims,versions}
 
-if [[ ":${PATH}:" != *:"${PYENV_ROOT}/shims":* ]]; then
+case "$shell" in
+fish )
+  echo "setenv PATH '${PYENV_ROOT}/shims' \$PATH"
+  echo "setenv PYENV_SHELL $shell"
+;;
+* )
+  echo 'export PATH="'${PYENV_ROOT}'/shims:${PATH}"'
+  echo "export PYENV_SHELL=$shell"
+;;
+esac
+
+completion="${root}/completions/pyenv.${shell}"
+if [ -r "$completion" ]; then
   case "$shell" in
-  fish )
-    echo "setenv PATH '${PYENV_ROOT}/shims' \$PATH"
-  ;;
-  * )
-    echo 'export PATH="'${PYENV_ROOT}'/shims:${PATH}"'
-  ;;
+  fish ) echo ". '$completion'" ;;
+  *    ) echo "source '$completion'" ;;
   esac
 fi
 
-completion="${root}/completions/pyenv.${shell}"
-[ -r "$completion" ] && echo ". '$completion'"
-
 if [ -z "$no_rehash" ]; then
-  echo 'pyenv rehash 2>/dev/null'
+  echo 'command pyenv rehash 2>/dev/null'
 fi
 
 commands=(`pyenv-commands --sh`)
@@ -117,13 +117,12 @@ function pyenv
 
   switch "\$command"
   case ${commands[*]}
-    eval (pyenv "sh-\$command" \$argv)
+    . (pyenv "sh-\$command" \$argv|psub)
   case '*'
     command pyenv "\$command" \$argv
   end
 end
 EOS
-  exit 0
   ;;
 ksh )
   cat <<EOS
@@ -139,6 +138,7 @@ EOS
   ;;
 esac
 
+if [ "$shell" != "fish" ]; then
 IFS="|"
 cat <<EOS
   command="\$1"
@@ -148,9 +148,10 @@ cat <<EOS
 
   case "\$command" in
   ${commands[*]})
-    eval "\`pyenv "sh-\$command" "\$@"\`";;
+    eval "\$(pyenv "sh-\$command" "\$@")";;
   *)
     command pyenv "\$command" "\$@";;
   esac
 }
 EOS
+fi

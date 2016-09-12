@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 #
-# Summary: Install a Python version using the python-build plugin
+# Summary: Install a Python version using python-build
 #
-# Usage: pyenv install [-f|--force] [-g|--debug] [-k|--keep] [-v|--verbose] <version>
-#        pyenv install [-f|--force] [-g|--debug] [-k|--keep] [-v|--verbose] <definition-file>
+# Usage: pyenv install [-f] [-kvp] <version>
+#        pyenv install [-f] [-kvp] <definition-file>
 #        pyenv install -l|--list
+#        pyenv install --version
 #
-#   -l/--list        List all available versions
-#   -f/--force       Install even if the version appears to be installed already
-#   -k/--keep        Keep source tree in $PYENV_BUILD_ROOT after installation
-#                    (defaults to $PYENV_ROOT/sources)
-#   -g/--debug       Build a debug version
-#   -v/--verbose     Verbose mode: print compilation status to stdout
+#   -l/--list          List all available versions
+#   -f/--force         Install even if the version appears to be installed already
+#   -s/--skip-existing Skip if the version appears to be installed already
+#
+#   python-build options:
+#
+#   -k/--keep          Keep source tree in $PYENV_BUILD_ROOT after installation
+#                      (defaults to $PYENV_ROOT/sources)
+#   -p/--patch         Apply a patch from stdin before building
+#   -v/--verbose       Verbose mode: print compilation status to stdout
+#   --version          Show version of python-build
+#   -g/--debug         Build a debug version
 #
 # For detailed information on installing Python versions with
 # python-build, including a list of environment variables for adjusting
@@ -20,27 +27,39 @@
 set -e
 [ -n "$PYENV_DEBUG" ] && set -x
 
+# Add `share/python-build/` directory from each pyenv plugin to the list of
+# paths where build definitions are looked up.
+shopt -s nullglob
+for plugin_path in "$PYENV_ROOT"/plugins/*/share/python-build; do
+  PYTHON_BUILD_DEFINITIONS="${PYTHON_BUILD_DEFINITIONS}:${plugin_path}"
+done
+export PYTHON_BUILD_DEFINITIONS
+shopt -u nullglob
+
 # Provide pyenv completions
 if [ "$1" = "--complete" ]; then
+  echo --list
+  echo --force
+  echo --skip-existing
+  echo --keep
+  echo --patch
+  echo --verbose
+  echo --version
+  echo --debug
   exec python-build --definitions
-fi
-
-if [ -z "$PYENV_ROOT" ]; then
-  PYENV_ROOT="${HOME}/.pyenv"
 fi
 
 # Load shared library functions
 eval "$(python-build --lib)"
 
 usage() {
-  # We can remove the sed fallback once pyenv 0.4.0 is widely available.
-  pyenv-help install 2>/dev/null || sed -ne '/^#/!q;s/.//;s/.//;1,4d;p' < "$0"
+  pyenv-help install 2>/dev/null
   [ -z "$1" ] || exit "$1"
 }
 
 definitions() {
   local query="$1"
-  python-build --definitions | grep -F "$query" || true
+  python-build --definitions | $(type -p ggrep grep | head -1) -F "$query" || true
 }
 
 indent() {
@@ -48,8 +67,10 @@ indent() {
 }
 
 unset FORCE
+unset SKIP_EXISTING
 unset KEEP
 unset VERBOSE
+unset HAS_PATCH
 unset DEBUG
 
 parse_options "$@"
@@ -66,11 +87,17 @@ for option in "${OPTIONS[@]}"; do
   "f" | "force" )
     FORCE=true
     ;;
+  "s" | "skip-existing" )
+    SKIP_EXISTING=true
+    ;;
   "k" | "keep" )
     [ -n "${PYENV_BUILD_ROOT}" ] || PYENV_BUILD_ROOT="${PYENV_ROOT}/sources"
     ;;
   "v" | "verbose" )
     VERBOSE="-v"
+    ;;
+  "p" | "patch" )
+    HAS_PATCH="-p"
     ;;
   "g" | "debug" )
     DEBUG="-g"
@@ -79,10 +106,12 @@ for option in "${OPTIONS[@]}"; do
     exec python-build --version
     ;;
   * )
-    usage 1
+    usage 1 >&2
     ;;
   esac
 done
+
+[ "${#ARGUMENTS[@]}" -le 1 ] || usage 1 >&2
 
 unset VERSION_NAME
 
@@ -91,9 +120,8 @@ unset VERSION_NAME
 # version is specified by pyenv. Show usage instructions if a local
 # version is not specified.
 DEFINITION="${ARGUMENTS[0]}"
-[ -n "$DEFINITION" ] || DEFINITION="$(pyenv local 2>/dev/null || true)"
-[ -n "$DEFINITION" ] || usage 1
-
+[ -n "$DEFINITION" ] || DEFINITION="$(pyenv-local 2>/dev/null || true)"
+[ -n "$DEFINITION" ] || usage 1 >&2
 
 # Define `before_install` and `after_install` functions that allow
 # plugin hooks to register a string of code for execution before or
@@ -110,10 +138,10 @@ after_install() {
   after_hooks["${#after_hooks[@]}"]="$hook"
 }
 
-# Load plugin hooks.
-for script in $(pyenv-hooks install); do
-  source "$script"
-done
+OLDIFS="$IFS"
+IFS=$'\n' scripts=(`pyenv-hooks install`)
+IFS="$OLDIFS"
+for script in "${scripts[@]}"; do source "$script"; done
 
 
 # Set VERSION_NAME from $DEFINITION, if it is not already set. Then
@@ -126,14 +154,21 @@ PREFIX="${PYENV_ROOT}/versions/${VERSION_NAME}"
 
 # If the installation prefix exists, prompt for confirmation unless
 # the --force option was specified.
-if [ -z "$FORCE" ] && [ -d "${PREFIX}/bin" ]; then
-  echo "pyenv: $PREFIX already exists" >&2
-  read -p "continue with installation? (y/N) "
+if [ -d "${PREFIX}/bin" ]; then
+  if [ -z "$FORCE" ] && [ -z "$SKIP_EXISTING" ]; then
+    echo "pyenv: $PREFIX already exists" >&2
+    read -p "continue with installation? (y/N) "
 
-  case "$REPLY" in
-  y* | Y* ) ;;
-  * ) exit 1 ;;
-  esac
+    case "$REPLY" in
+    y* | Y* ) ;;
+    * ) exit 1 ;;
+    esac
+  elif [ -n "$SKIP_EXISTING" ]; then
+    # Since we know the python version is already installed, and are opting to
+    # not force installation of existing versions, we just `exit 0` here to
+    # leave things happy
+    exit 0
+  fi
 fi
 
 # If PYENV_BUILD_ROOT is set, always pass keep options to python-build.
@@ -148,12 +183,51 @@ if [ -z "${PYTHON_BUILD_CACHE_PATH}" ] && [ -d "${PYENV_ROOT}/cache" ]; then
   export PYTHON_BUILD_CACHE_PATH="${PYENV_ROOT}/cache"
 fi
 
-# Default PYENV_VERSION to the globally-specified Python version. (The
-# CPython installer requires an existing Python installation to run. An
-# unsatisfied local .python-version file can cause the installer to
-# fail.)
-#export PYENV_VERSION="$(pyenv global 2>/dev/null || true)"
+if [ -z "${PYENV_BOOTSTRAP_VERSION}" ]; then
+  case "${VERSION_NAME}" in
+  [23]"."* )
+    # Default PYENV_VERSION to the friendly Python version. (The
+    # CPython installer requires an existing Python installation to run. An
+    # unsatisfied local .python-version file can cause the installer to
+    # fail.)
+    for version_info in "${VERSION_NAME%-dev}" "${VERSION_NAME%.*}" "${VERSION_NAME%%.*}"; do
+      # Anaconda's `curl` doesn't work on platfrom where `/etc/pki/tls/certs/ca-bundle.crt` isn't available (e.g. Debian)
+      for version in $(pyenv-whence "python${version_info}" 2>/dev/null || true); do
+        if [[ "${version}" != "anaconda"* ]] && [[ "${version}" != "miniconda"* ]]; then
+          PYENV_BOOTSTRAP_VERSION="${version}"
+          break 2
+        fi
+      done
+    done
+    ;;
+  "pypy-dev" | "pypy-"*"-src" | "pypy3-"*"-src" )
+    # PyPy/PyPy3 requires existing Python 2.7 to build
+    if [ -n "${PYENV_RPYTHON_VERSION}" ]; then
+      PYENV_BOOTSTRAP_VERSION="${PYENV_RPYTHON_VERSION}"
+    else
+      for version in $(pyenv-versions --bare | sort -r); do
+        if [[ "${version}" == "2.7"* ]]; then
+          PYENV_BOOTSTRAP_VERSION="$version"
+          break
+        fi
+      done
+    fi
+    if [ -n "$PYENV_BOOTSTRAP_VERSION" ]; then
+      if ! PYENV_VERSION="$PYENV_BOOTSTRAP_VERSION" pyenv-exec python -c 'import curses' 1>/dev/null 2>&1; then
+        echo "pyenv-install: $VERSION_NAME: PyPy requires \`curses' in $PYENV_BOOTSTRAP_VERSION to build from source." >&2
+        exit 1
+      fi
+    else
+      echo "pyenv-install: $VERSION_NAME: PyPy requires Python 2.7 to build from source." >&2
+      exit 1
+    fi
+    ;;
+  esac
+fi
 
+if [ -n "${PYENV_BOOTSTRAP_VERSION}" ]; then
+  export PYENV_VERSION="${PYENV_BOOTSTRAP_VERSION}"
+fi
 
 # Execute `before_install` hooks.
 for hook in "${before_hooks[@]}"; do eval "$hook"; done
@@ -167,22 +241,30 @@ trap cleanup SIGINT
 
 # Invoke `python-build` and record the exit status in $STATUS.
 STATUS=0
-python-build $KEEP $VERBOSE $DEBUG "$DEFINITION" "$PREFIX" || STATUS="$?"
+python-build $KEEP $VERBOSE $HAS_PATCH $DEBUG "$DEFINITION" "$PREFIX" || STATUS="$?"
 
 # Display a more helpful message if the definition wasn't found.
 if [ "$STATUS" == "2" ]; then
   { candidates="$(definitions "$DEFINITION")"
+    here="$(dirname "${0%/*}")/../.."
     if [ -n "$candidates" ]; then
       echo
       echo "The following versions contain \`$DEFINITION' in the name:"
       echo "$candidates" | indent
     fi
     echo
-    echo "You can list all available versions with \`pyenv install --list'."
+    echo "See all available versions with \`pyenv install --list'."
     echo
-    echo "If the version you're looking for is not present, first try upgrading"
-    echo "pyenv. If it's still missing, open a request on the pyenv"
-    echo "issue tracker: https://github.com/yyuu/pyenv/issues"
+    echo -n "If the version you need is missing, try upgrading pyenv"
+    if [ "$here" != "${here#$(brew --prefix 2>/dev/null)}" ]; then
+      printf ":\n\n"
+      echo "  brew update && brew upgrade pyenv"
+    elif [ -d "${here}/.git" ]; then
+      printf ":\n\n"
+      echo "  cd ${here} && git pull && cd -"
+    else
+      printf ".\n"
+    fi
   } >&2
 fi
 
@@ -191,7 +273,7 @@ for hook in "${after_hooks[@]}"; do eval "$hook"; done
 
 # Run `pyenv-rehash` after a successful installation.
 if [ "$STATUS" == "0" ]; then
-  pyenv rehash
+  pyenv-rehash
 else
   cleanup
 fi

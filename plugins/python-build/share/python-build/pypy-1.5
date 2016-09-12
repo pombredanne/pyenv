@@ -1,28 +1,24 @@
-case "$(uname -s)" in
-"Darwin" )
-  install_package "pypy-c-jit-43780-b590cf6de419-osx64" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.5-osx64.tar.bz2#b1417916bc01ebb9f95c666f5e397fb5" pypy verify_py27
+case "$(pypy_architecture 2>/dev/null || true)" in
+"linux" )
+  install_package "pypy-c-jit-43780-b590cf6de419-linux" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.5-linux.tar.bz2#a5a28457134a050bae59ee8d83cc65807bab10f0c7c3be547c6d9284f9a77989" "pypy" verify_py27 ensurepip
   ;;
-"Linux" )
-  case "$(uname -m)" in
-  "i386" | "i486" | "i586" | "i686" | "i786" )
-    install_package "pypy-c-jit-43780-b590cf6de419-linux" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.5-linux.tar.bz2#08a2c95163c95f91772abb8bf5f8b9cb" pypy verify_py27
-    ;;
-  "x86_64" )
-    install_package "pypy-c-jit-43780-b590cf6de419-linux64" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.5-linux64.tar.bz2#32392b7986eb34cd657d5b6c5d242cc7" pypy verify_py27
-    ;;
-  esac
+"linux64" )
+  install_package "pypy-c-jit-43780-b590cf6de419-linux64" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.5-linux64.tar.bz2#880b7f9288a6046aff62ded61a4f432ccb45038daee526356afa311d14c010a9" "pypy" verify_py27 ensurepip
   ;;
-"CYGWIN"* | "MINGW"* )
+"osx64" )
+  install_package "pypy-c-jit-43780-b590cf6de419-osx64" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.5-osx64.tar.bz2#87294182aeacf2597c2bde358ffd6810295214db8cf81b07340598bb03ac44f0" "pypy" verify_py27 ensurepip
+  ;;
+"win32" )
   # FIXME: never tested on Windows
-  install_zip "pypy-1.5.0a0-win32" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.5-win32.zip#b6cc12bed5e7243ed44aa3430eb14885" pypy verify_py27
+  install_zip "pypy-1.5.0a0-win32" "https://bitbucket.org/pypy/pypy/downloads/pypy-1.5-win32.zip#8ee727a9cfdc1957ced24a136a263279361efda73cc1354cc4877383565a4fe6" "pypy" verify_py27 ensurepip
   ;;
 * )
-  { echo "Precompiled binary of pypy-1.5 is not available for $(uname -s)-$(uname -m)."
-    echo "To build pypy-1.5 from soruce, use 'pypy-1.5-src'."
-  } 1>&4 2>&1
-  false
+  { echo
+    colorize 1 "ERROR"
+    echo ": The binary distribution of PyPy is not available for $(pypy_architecture 2>/dev/null || true)."
+    echo "try 'pypy-1.5-src' to build from source."
+    echo
+  } >&2
+  exit 1
   ;;
 esac
-
-install_package "setuptools-1.1.7" "https://pypi.python.org/packages/source/s/setuptools/setuptools-1.1.7.tar.gz#1f33594d25d574a1640ffb84667c6759" python
-install_package "pip-1.4.1" "https://pypi.python.org/packages/source/p/pip/pip-1.4.1.tar.gz#6afbb46aeb48abac658d4df742bff714" python
